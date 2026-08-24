@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Optional
 
 
-# --- Database setup ---
 DB_PATH = Path(__file__).parent.parent / "data" / "listings.db"
 
 
@@ -118,10 +117,20 @@ _MODEL_PRICING = {
 _DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
-def calculate_cost(input_tokens: int, output_tokens: int, model: str = _DEFAULT_MODEL) -> float:
+# The Message Batches API bills at half the standard per-token rate. Every
+# eval pipeline call (eval/eval_runner.py) goes through that API, not the
+# standard synchronous endpoint, so its real cost is half of what the
+# standard rates below would suggest. Interactive calls (app.py, live in
+# the Streamlit tool) are not batched and are billed at the full rate.
+_BATCH_DISCOUNT = 0.5
+
+
+def calculate_cost(input_tokens: int, output_tokens: int, model: str = _DEFAULT_MODEL,
+                    batch: bool = False) -> float:
     pricing = _MODEL_PRICING.get(model, _MODEL_PRICING[_DEFAULT_MODEL])
-    return (input_tokens / 1_000_000 * pricing["input"]) + \
+    cost = (input_tokens / 1_000_000 * pricing["input"]) + \
            (output_tokens / 1_000_000 * pricing["output"])
+    return cost * _BATCH_DISCOUNT if batch else cost
 
 
 # --- Logging a run ---

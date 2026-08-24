@@ -3,6 +3,9 @@ import instructor
 from pydantic import BaseModel
 from typing import Literal
 
+from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
+from anthropic.types.messages.batch_create_params import Request
+
 
 # --- Prefilter ---
 
@@ -70,33 +73,47 @@ class CommentClassification(BaseModel):
 
 
 # --- Instructor-wrapped Anthropic client ---
-client = instructor.from_anthropic(anthropic.Anthropic())
+raw_client = anthropic.Anthropic()
+client = instructor.from_anthropic(raw_client)
 
 
 # --- Classification function ---
-def classify_comment(comment_text: str) -> CommentClassification:
-    classification, _raw = client.messages.create_with_completion(
-        model="claude-sonnet-4-6",
-        max_tokens=1024,
-        messages=[
-            {
-                "role": "user",
-                "content": f"""You are reviewing a comment from a Cars & Bids auction thread to decide
+def _build_prompt(comment_text: str) -> str:
+    return f"""You are reviewing a comment from a Cars & Bids auction thread to decide
 whether it confirms a real, evidence-backed discrepancy between the listing
 and the actual car -- not just speculation or opinion.
 
-CONFIRM (is_confirmed_discrepancy=True) only when the commenter states
-something as verified fact tied to evidence: they checked a record, compared
-a photo, called someone, or point to a specific contradiction they can show.
+CONFIRM (is_confirmed_discrepancy=True) only when the comment shows the
+LISTING'S OWN stated claim -- its spec, drivetrain, title/location, history,
+mileage continuity, or photos -- is contradicted by an outside, checkable
+source: a prior auction/listing of the same car, VIN/spec data, an auction
+house's own record, a title document, or a plainly wrong stated fact (wrong
+model part, wrong drivetrain, wrong location). The car having some flaw is
+not enough by itself -- the LISTING'S CLAIM has to be the thing that's wrong.
 
-Example CONFIRM:
-"Pulled the Carfax myself -- it shows 62,000 miles at last service in 2023,
-but this listing says 58,000 now. That's backwards."
--> is_confirmed_discrepancy=True, flag_category=ODOMETER_DISCREPANCY
+Example CONFIRM (listing's history claim contradicted by an outside record):
+"You stated the car has been in the family since new, but Barrett Jackson
+shows this car sold at Las Vegas in 2008."
+-> is_confirmed_discrepancy=True, flag_category=VIN_SPEC_MISMATCH
+
+Example CONFIRM (listing's spec is just wrong):
+"The listing says this is RWD but it's actually AWD -- check the badge and
+the VIN decode."
+-> is_confirmed_discrepancy=True, flag_category=VIN_SPEC_MISMATCH
 
 DENY (is_confirmed_discrepancy=False) when the comment is speculation, a
-guess, an opinion, or uses a trigger word while actually denying there's a
-problem.
+guess, an opinion, uses a trigger word while actually denying there's a
+problem, OR -- importantly -- when it's the seller/owner (or anyone)
+ANSWERING, CLARIFYING, or EXPLAINING a question about the car's condition,
+mechanical history, or mileage in the thread. That's active disclosure
+happening in real time, not a hidden mismatch between the listing and
+reality, even if it mentions damage, a repair, or a mileage figure.
+
+Example DENY (seller disclosure, not a listing contradiction):
+"Yes that's correct, the mileage was recorded in km on the title and not
+converted to miles -- I didn't catch it until recently, sorry for the
+confusion."
+-> is_confirmed_discrepancy=False, flag_category=NOT_A_DISCREPANCY
 
 Example DENY (uses a trigger word but isn't flagging anything):
 "Checked the mileage and it lines up fine with the service stickers in the
@@ -111,12 +128,57 @@ who knows."
 Now classify this comment:
 
 \"\"\"{comment_text}\"\"\"
-""",
-            }
-        ],
+"""
+
+
+def classify_comment(comment_text: str) -> CommentClassification:
+    classification, _raw = client.messages.create_with_completion(
+        model="claude-sonnet-4-6",
+        max_tokens=1024,
+        messages=[{"role": "user", "content": _build_prompt(comment_text)}],
         response_model=CommentClassification,
     )
     return classification
+
+
+# --- Batch API support ---
+# Same prompt and classification schema as classify_comment above, but built
+# as a Message Batches request instead of a synchronous call. Batches cost
+# 50% less per token and are the right fit for a one-shot corpus mining job
+# with no latency requirement -- see agents/run_comment_mining_batch.py.
+BATCH_TOOL_NAME = "classify_comment"
+
+
+def _batch_tool_schema() -> dict:
+    schema = CommentClassification.model_json_schema()
+    schema.pop("title", None)
+    return {
+        "name": BATCH_TOOL_NAME,
+        "description": "Classify whether a Cars & Bids auction comment confirms a real, evidence-backed discrepancy.",
+        "input_schema": schema,
+    }
+
+
+def build_batch_request(custom_id: str, comment_text: str) -> Request:
+    return Request(
+        custom_id=custom_id,
+        params=MessageCreateParamsNonStreaming(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": _build_prompt(comment_text)}],
+            tools=[_batch_tool_schema()],
+            tool_choice={"type": "tool", "name": BATCH_TOOL_NAME},
+        ),
+    )
+
+
+def parse_batch_result(message) -> CommentClassification:
+    """message is the anthropic Message from a succeeded batch result
+    (result.result.message)."""
+    for block in message.content:
+        if block.type == "tool_use" and block.name == BATCH_TOOL_NAME:
+            return CommentClassification(**block.input)
+    raise ValueError("No classify_comment tool_use block found in batch result message")
 
 
 # --- Mining function ---

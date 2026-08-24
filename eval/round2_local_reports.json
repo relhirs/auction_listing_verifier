@@ -1,0 +1,13 @@
+{
+  "rMxQPWGZ": {
+    "overall_score": 1.0,
+    "flags": [],
+    "summary_paragraph": "No issues were detected. All verified fields match across listing, VIN, and photo data. This listing appears complete and consistent.",
+    "recommended_action": "approve",
+    "synthesis_usage": {
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    "synthesis_cost_usd": 0.0
+  }
+}

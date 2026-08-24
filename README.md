@@ -6,7 +6,7 @@ This is a multi agent AI system that checks used car auction listings before the
 
 I built this, tested it against 500 real closed auctions from Cars and Bids, and measured exactly how well it works. This document walks through what it does, how it works, what the numbers actually showed, and what broke along the way.
 
-**Live dashboard:** the full interactive breakdown of every result below lives at [add your Vercel link here once deployed].
+[**Live Dashboard**](https://listing-checker-ai.vercel.app/): the full interactive breakdown of every result down below 
 
 ## The problem
 

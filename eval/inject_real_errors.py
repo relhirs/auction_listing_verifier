@@ -26,16 +26,7 @@ MAKE_SWAP = {
 
 DRIVETRAIN_OPTIONS = ["RWD", "AWD", "FWD", "4WD"]
 
-MILEAGE_DRIFT_BANDS = [6000, 10000, 15000]  # miles; all > MILEAGE_TOLERANCE_MILES (5000,
-# core/constants.py) with real margin. Previously [800, 3000, 15000], set when
-# the tolerance was still 500 -- once the tolerance was raised to 5000 (real
-# noise-vs-signal separation measured at the time), 2 of these 3 bands (800,
-# 3000) silently became mathematically uncatchable: 42 of 55 real
-# mileage_drift eval rows had a drift magnitude at or below the current
-# tolerance, so no detection improvement could ever have caught them. These
-# bands must stay above MILEAGE_TOLERANCE_MILES with real margin, matching
-# the genuine-drift-vs-noise separation already measured for that constant
-# (genuine deltas 6,980-17,755mi; noise 700-4,850mi).
+MILEAGE_DRIFT_BANDS = [6000, 10000, 15000]  
 
 
 def _severity_to_verdict(severity: str, error_field: str) -> str:

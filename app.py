@@ -16,9 +16,9 @@ from core.verifier import VerificationSummary
 from agents.synthesis_agent import ListingReport
 from corpus.sample_listings import EXAMPLE_LISTINGS, EXAMPLE_PLACEHOLDER
 
-# --- Project links (update these once the dashboard is live) ---
-DASHBOARD_URL = "https://your-dashboard-url.vercel.app"
-GITHUB_URL = "https://github.com/your-username/listing_checker"
+# --- Project links ---
+DASHBOARD_URL = "https://listing-checker-ai.vercel.app/"
+GITHUB_URL = "https://github.com/relhirs/listing_checker"
 NHTSA_DECODER_URL = "https://vpic.nhtsa.dot.gov/decoder/"
 
 # --- Cached sample reports, built once by generate_sample_cache.py. This

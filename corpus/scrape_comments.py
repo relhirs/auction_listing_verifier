@@ -1,32 +1,5 @@
-"""
-scrape_comments.py
-
-Batch scraper for Cars & Bids auction comments.
-
-HOW TO USE THIS:
-1. Fill in AUCTION_URLS near the bottom with your batch of auction URLs or IDs.
-2. Run: python -m corpus.scrape_comments
-3. The script will:
-   a. Run the self-test FIRST. If it fails, it stops -- it will not attempt
-      the batch job with a formula it hasn't confirmed works.
-   b. If the self-test passes, it fetches all comments for every auction in
-      AUCTION_URLS, paginating automatically, and stores them in the
-      raw_comments table of corpus/corpus.db (see corpus/storage.py).
-4. Safe to re-run: any auction already stored gets skipped, so you can add
-   more URLs to the list later and only the new ones get fetched. Saves are
-   also idempotent per-comment (INSERT OR REPLACE keyed on auction_id +
-   comment_id), so re-running an in-progress auction never creates duplicates.
-
-IF YOU GET A KeyError ABOUT 'comments_and_bids' NOT BEING FOUND:
-Open a row's comment_json in corpus/corpus.db, or re-check the Response tab in
-DevTools, find the actual top-level key holding the array, and change
-COMMENTS_KEY in corpus/config.py to match. This is the single most likely
-thing to need adjusting -- I have not confirmed this key name against a live
-response.
-
-To re-run just the signature self-test on its own: python -m corpus.signing
-"""
-
+import json
+import os
 import time
 
 import requests
@@ -36,6 +9,19 @@ from corpus.auth import get_ti_ni
 from corpus.client import extract_auction_id, fetch_all_comments
 from corpus.signing import self_test
 from corpus.storage import init_db, has_auction, save_comments
+
+LISTINGS_PATH = os.path.join(os.path.dirname(__file__), "listings.json")
+
+
+def load_urls_from_listings():
+    """Loads the "url" field out of each entry in corpus/listings.json
+    (produced by corpus/scrape_listings.py). Returns [] if the file
+    doesn't exist yet."""
+    if not os.path.exists(LISTINGS_PATH):
+        return []
+    with open(LISTINGS_PATH, "r") as f:
+        data = json.load(f)
+    return [entry["url"] for entry in data]
 
 
 def run_batch(urls_or_ids: list):
@@ -70,9 +56,10 @@ def run_batch(urls_or_ids: list):
     print("\nBatch run finished.")
 
 
-# Paste your batch of auction URLs or bare auction IDs here, one per line.
+# Kept for reference / manual one-off batches. Not used by default -- see
+# load_urls_from_listings() above, which is what __main__ actually calls now.
 # Full URLs and bare IDs both work -- extract_auction_id() handles either.
-AUCTION_URLS = [
+FALLBACK_AUCTION_URLS = [
     "https://carsandbids.com/auctions/3RJ7VvB8/1999-toyota-land-cruiser",
     "https://carsandbids.com/auctions/3qYgyXw4/1991-toyota-mr2-turbo",
     "https://carsandbids.com/auctions/rwOLM8Ew/1998-range-rover-40-se",
@@ -150,4 +137,13 @@ if __name__ == "__main__":
         print("\nSelf-test PASSED.\n")
         print("=== STEP 2: batch fetching comments ===\n")
         init_db()
-        run_batch(AUCTION_URLS)
+
+        urls = load_urls_from_listings()
+        if urls:
+            print(f"Loaded {len(urls)} auction URLs from {LISTINGS_PATH}\n")
+        else:
+            print(f"{LISTINGS_PATH} not found -- falling back to "
+                  f"FALLBACK_AUCTION_URLS ({len(FALLBACK_AUCTION_URLS)} URLs)\n")
+            urls = FALLBACK_AUCTION_URLS
+
+        run_batch(urls)

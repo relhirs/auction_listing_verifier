@@ -1,13 +1,52 @@
 import streamlit as st
 import time
-import pandas as pd
-from agents.extraction_agent import extract_listing
-from agents.vin_agent import verify_vin
-from agents.photo_agent import analyze_photos
-from agents.editorial_agent import check_editorial
-from core.verifier import verify_listing
-from agents.synthesis_agent import synthesize_report
-from core.logger import RunLogger, get_summary_dict, save_flag_feedback, get_connection
+import json
+import random
+from dotenv import load_dotenv
+
+# Still needed even though this app never calls the API: importing the
+# agent modules below to reuse their Pydantic classes also constructs an
+# Anthropic client at import time, which raises immediately if no API key
+# is present in the environment.
+load_dotenv()
+
+from agents.extraction_agent import ListingData
+from agents.vin_agent import VINData
+from core.verifier import VerificationSummary
+from agents.synthesis_agent import ListingReport
+from corpus.sample_listings import EXAMPLE_LISTINGS, EXAMPLE_PLACEHOLDER
+
+# --- Project links (update these once the dashboard is live) ---
+DASHBOARD_URL = "https://your-dashboard-url.vercel.app"
+GITHUB_URL = "https://github.com/your-username/listing_checker"
+NHTSA_DECODER_URL = "https://vpic.nhtsa.dot.gov/decoder/"
+
+# --- Cached sample reports, built once by generate_sample_cache.py. This
+# app never calls the API itself: every result shown here was produced
+# once, honestly, ahead of time, then replayed. There is no way to submit
+# your own listing text or photo URLs, on purpose, so this can be shared
+# publicly with no ongoing API cost no matter how many people use it.
+try:
+    with open("eval/sample_reports_cache.json") as f:
+        SAMPLE_CACHE = json.load(f)
+except FileNotFoundError:
+    SAMPLE_CACHE = {}
+
+# Short, plain-English explanations of how each check's confidence number
+# is actually computed in core/verifier.py, so a viewer can see the
+# reasoning behind a percentage instead of just the percentage itself.
+CONFIDENCE_EXPLANATIONS = {
+    "year": "This is a clean pass or fail check, so confidence is fixed at 0.95 whenever the VIN's decoded year does not match the claimed year.",
+    "make": "A make mismatch is about as unambiguous as this system gets, so confidence is fixed at 0.99.",
+    "engine_displacement": "Confidence scales with how far past the 0.2 liter tolerance the gap is, from a floor of 0.70 up to a ceiling of 0.95. A gap right at the edge of the tolerance reads as less certain than a large one.",
+    "engine_cylinders": "Confidence scales with the size of the cylinder gap, from a floor of 0.70 up to a ceiling of 0.90. A 1 cylinder gap, often just a parsing quirk, counts as weaker evidence than a 2 or more cylinder gap.",
+    "drivetrain": "Confidence is 0.90 for most mismatches, but floored to 0.70 specifically for AWD versus 4WD confusion, since that exact pair caused every false alarm this check has ever produced in testing. Every other kind of drivetrain mismatch has been correct 100% of the time.",
+    "transmission": "Fixed at 0.80. NHTSA's transmission data is sparse enough that this check only fires when it actually has a real value to compare against.",
+    "mileage": "Confidence scales with how far the service record's mileage exceeds the claimed mileage past a 5,000 mile tolerance, from a floor of 0.70 up to a ceiling of 0.95. A checkpoint just over the line reads as less certain than one tens of thousands of miles over it.",
+    "color": "Fixed at 0.75 (or 0.30 near a close split) on purpose. Blending in the vision model's own confidence was tried and measured to make this check less accurate, not more, so it was left alone.",
+    "duplicate_photo": "Confidence scales with how visually close the two photos are, based on hash distance, rather than one fixed number.",
+    "photo_angles": "Confidence scales with how clearly the photo agent could identify the missing angle across all photos it analyzed, rather than one fixed number.",
+}
 
 # --- Page config ---
 st.set_page_config(
@@ -23,123 +62,115 @@ if "running" not in st.session_state:
     st.session_state.running = False
 if "highlights_text" not in st.session_state:
     st.session_state.highlights_text = None
-if "feedback_given" not in st.session_state:
-    st.session_state.feedback_given = {}
 if "verification_summary" not in st.session_state:
     st.session_state.verification_summary = None
 
+# --- Sidebar ---
+with st.sidebar:
+    st.markdown("### About this project")
+    st.caption(
+        "This is the hands on demo half of a larger project. The same checks "
+        "shown here were measured against 500 real, closed Cars & Bids auctions "
+        "to see how well they actually catch planted mistakes."
+    )
+    st.markdown(f"[Full results and write up]({DASHBOARD_URL})")
+    st.markdown(f"[Source on GitHub]({GITHUB_URL})")
 
 # --- Header ---
-st.title("🚗 Cars & Bids Listing Verifier")
-st.caption("Paste a listing and image URLs to run full verification.")
+st.title("Car Auction Listing Verifier")
+st.write(
+    "Pick one of the sample listings below to see the real output of the "
+    "verification pipeline that scored 87.50% accuracy across 500 real "
+    "closed auctions. Every result here is real, produced once ahead of "
+    "time and replayed instantly, this page never calls the API live, so "
+    "it works the same no matter how many people try it."
+)
 
 # --- Input section ---
-st.subheader("Input")
+st.subheader("Pick a sample")
 
-listing_url = st.text_input(
-    "Listing URL (optional — for logging only)",
-    placeholder="https://carsandbids.com/auctions/..."
+sample_names = [EXAMPLE_PLACEHOLDER] + list(EXAMPLE_LISTINGS.keys())
+selected_name = st.selectbox("Sample listing", options=sample_names, label_visibility="collapsed")
+
+st.caption(
+    "The first 10 samples are text only, testing the VIN and mileage checks. "
+    "The last 5 use real photos from real closed auctions, testing the color, "
+    "duplicate photo, and missing angle checks. "
+    f"Every VIN below can be checked by hand at the [NHTSA VIN decoder]({NHTSA_DECODER_URL}) "
+    "to confirm the result yourself."
 )
 
-listing_text = st.text_area(
-    "Paste listing text",
-    height=300,
-    placeholder="Paste the full Cars & Bids listing text here..."
+selection_made = selected_name != EXAMPLE_PLACEHOLDER
+run_clicked = st.button(
+    "Run Analysis",
+    type="primary",
+    disabled=st.session_state.running or not selection_made,
 )
 
-image_urls_input = st.text_area(
-    "Image URLs (one per line)",
-    height=150,
-    placeholder="https://media.carsandbids.com/..."
-)
-
-# --- Run button ---
-run_clicked = st.button("Run Analysis", type="primary", disabled=st.session_state.running)
-
-if run_clicked and listing_text.strip():
+if run_clicked and selection_made:
     st.session_state.running = True
     st.session_state.report = None
 
-    image_urls = [
-        url.strip()
-        for url in image_urls_input.strip().splitlines()
-        if url.strip()
-    ]
+    sample = EXAMPLE_LISTINGS[selected_name]
+    cached = SAMPLE_CACHE.get(selected_name)
 
-    logger = RunLogger(listing_url=listing_url or None)
+    if cached is None:
+        st.error(
+            "This sample hasn't been cached yet. Run `python corpus/generate_sample_cache.py` "
+            "(with API credits available) to generate it, then reload this page."
+        )
+        st.session_state.running = False
+    else:
+        image_urls = sample["image_urls"]
 
-    with st.spinner("Running verification pipeline..."):
-        # --- Extraction Agent ---
-        with st.status("Extracting listing data...", expanded=False):
-            logger.start_agent("extraction")
-            listing_data, in_tok, out_tok = extract_listing(listing_text)
-            logger.end_agent("extraction", input_tokens=in_tok, output_tokens=out_tok)
-            st.write(f"✅ Extracted: {listing_data.year} {listing_data.make} {listing_data.model}")
+        STEPS = [
+            "Extracting listing data...",
+            "Verifying VIN...",
+            "Analyzing photos...",
+            "Checking editorial quality...",
+            "Running verification logic...",
+            "Generating report...",
+        ]
+        progress_bar = st.progress(0, text=STEPS[0])
 
-        # --- VIN Agent ---
-        with st.status("Verifying VIN...", expanded=False):
-            logger.start_agent("vin")
-            vin_data = verify_vin(listing_data.vin) if listing_data.vin else verify_vin("00000000000000000")
-            logger.end_agent("vin", input_tokens=0, output_tokens=0)
-            st.write(f"✅ VIN decoded: {vin_data.make} {vin_data.model} {vin_data.year}")
+        listing_data = ListingData.model_validate(cached["listing_data"])
+        vin_data = VINData.model_validate(cached["vin_data"])
+        verification_summary = VerificationSummary.model_validate(cached["verification_summary"])
+        report = ListingReport.model_validate(cached["report"])
 
-        # --- Photo Agent ---
-        photo_data = []
+        time.sleep(random.uniform(0.8, 1.4))
+        st.caption(f"Extracted: {listing_data.year} {listing_data.make} {listing_data.model}")
+        progress_bar.progress(1 / len(STEPS), text=STEPS[1])
+
+        time.sleep(random.uniform(0.5, 0.9))
+        st.caption(f"VIN decoded: {vin_data.make} {vin_data.model} {vin_data.year}")
+        progress_bar.progress(2 / len(STEPS), text=STEPS[2])
+
         if image_urls:
-            with st.status(f"Analyzing {len(image_urls)} photo(s)...", expanded=False):
-                logger.start_agent("photo")
-                photo_data, in_tok, out_tok = analyze_photos(image_urls)
-                logger.end_agent("photo", input_tokens=in_tok, output_tokens=out_tok)
-                st.write(f"✅ Analyzed {len(photo_data)} photos")
+            time.sleep(random.uniform(0.4, 0.6) * len(image_urls))
+            st.caption(f"Analyzed {len(image_urls)} photos")
+            if cached.get("num_duplicate_pairs"):
+                st.caption(f"{cached['num_duplicate_pairs']} possible duplicate photo pair(s) detected")
         else:
-            st.info("No image URLs provided — skipping photo analysis.")
+            time.sleep(random.uniform(0.2, 0.4))
+            st.caption("No image URLs provided, skipping photo analysis.")
+        progress_bar.progress(3 / len(STEPS), text=STEPS[3])
 
-        # --- Editorial Agent ---
-        with st.status("Checking editorial quality...", expanded=False):
-            logger.start_agent("editorial")
-            editorial_data, in_tok, out_tok = check_editorial(listing_text)
-            logger.end_agent("editorial", input_tokens=in_tok, output_tokens=out_tok)
-            st.write(f"✅ Editorial score: {editorial_data.completeness_score}")
+        time.sleep(random.uniform(0.7, 1.1))
+        st.caption(f"Editorial score: {cached['completeness_score']}")
+        progress_bar.progress(4 / len(STEPS), text=STEPS[4])
 
-        # --- Verifier ---
-        with st.status("Running verification logic...", expanded=False):
-            flags, verification_summary = verify_listing(listing_data, vin_data, photo_data, editorial_data)
-            st.write(f"✅ Found {len(flags)} flag(s)")
+        time.sleep(random.uniform(0.2, 0.4))
+        st.caption(f"Found {len(report.flags)} flag(s)")
+        progress_bar.progress(5 / len(STEPS), text=STEPS[5])
 
-        # --- Synthesis Agent ---
-        with st.status("Generating report...", expanded=False):
-            logger.start_agent("synthesis")
-            report, in_tok, out_tok = synthesize_report(flags)
-            logger.end_agent("synthesis", input_tokens=in_tok, output_tokens=out_tok)
-            st.write("✅ Report ready")
+        time.sleep(random.uniform(0.6, 1.0))
+        progress_bar.progress(1.0, text="Done")
 
-    # Save to session state
-    st.session_state.report = report
-    st.session_state.highlights_text = editorial_data.highlights_text
-    st.session_state.verification_summary = verification_summary
-    st.session_state.running = False
-
-    # Log the run
-    error_count = sum(1 for f in flags if f.severity == "ERROR")
-    warning_count = sum(1 for f in flags if f.severity == "WARNING")
-    info_count = sum(1 for f in flags if f.severity == "INFO")
-    logger.save(
-        flag_count=len(flags),
-        error_count=error_count,
-        warning_count=warning_count,
-        info_count=info_count,
-        recommended_action=report.recommended_action,
-        overall_score=report.overall_score
-    )
-    conn = get_connection()
-    run_id = conn.execute(
-        "SELECT id FROM runs ORDER BY id DESC LIMIT 1"
-    ).fetchone()["id"]
-    conn.close()
-    st.session_state.current_run_id = run_id
-
-elif run_clicked and not listing_text.strip():
-    st.warning("Please paste listing text before running.")
+        st.session_state.report = report
+        st.session_state.highlights_text = cached["highlights_text"]
+        st.session_state.verification_summary = verification_summary
+        st.session_state.running = False
 
 # --- Results section ---
 if st.session_state.report:
@@ -214,17 +245,18 @@ if st.session_state.report:
             st.markdown("**Mileage**")
             st.write(vs.mileage_claimed or "—")
             if vs.mileage_consistent is True:
-                st.markdown("✅ Odometer consistent")
+                st.markdown("✅ Consistent with service history")
             elif vs.mileage_consistent is False:
-                st.markdown(f"⚠️ Odometer shows {vs.mileage_photo_read}")
+                st.markdown(f"⚠️ Service record shows {vs.mileage_checkpoint} miles")
             else:
-                st.markdown("— No odometer photo")
+                st.markdown("— No service history in listing text")
         with col3:
             st.markdown("**VIN**")
             if vs.vin_decoded:
                 st.markdown("✅ Decoded successfully")
             else:
                 st.markdown("❌ Could not decode")
+            st.caption(f"[Check this VIN yourself]({NHTSA_DECODER_URL})")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -258,7 +290,7 @@ if st.session_state.report:
 
         severity_icons = {"ERROR": "🔴", "WARNING": "🟡", "INFO": "🔵"}
 
-        def render_flag_card(flag, i):
+        def render_flag_card(flag):
             icon = severity_icons[flag.severity]
             with st.expander(f"{icon} [{flag.severity}] {flag.field_name}", expanded=flag.severity == "ERROR"):
                 col1, col2 = st.columns(2)
@@ -275,146 +307,17 @@ if st.session_state.report:
                 st.markdown("**Suggested Fix**")
                 st.info(flag.suggested_fix)
 
-                col1, col2, col3, _ = st.columns([1, 1, 1, 2])
-                with col1:
-                    if st.button("✅ Correct", key=f"correct_{i}"):
-                        save_flag_feedback(st.session_state.get("current_run_id"), flag.field_name, flag.severity, "correct")
-                        st.session_state.feedback_given[i] = "correct"
-                        st.toast("Feedback saved")
-                with col2:
-                    if st.button("❌ False positive", key=f"fp_{i}"):
-                        save_flag_feedback(st.session_state.get("current_run_id"), flag.field_name, flag.severity, "false_positive")
-                        st.session_state.feedback_given[i] = "false_positive"
-                        st.toast("Feedback saved")
-                with col3:
-                    if st.button("👁 Already known", key=f"known_{i}"):
-                        save_flag_feedback(st.session_state.get("current_run_id"), flag.field_name, flag.severity, "already_known")
-                        st.session_state.feedback_given[i] = "already_known"
-                        st.toast("Feedback saved")
+                confidence_note = CONFIDENCE_EXPLANATIONS.get(flag.field_name)
+                if confidence_note:
+                    with st.expander("Why this confidence number?"):
+                        st.caption(confidence_note)
 
-                note = st.text_input(
-                    "Add note (optional)",
-                    placeholder="Describe what the flag got wrong or right...",
-                    key=f"note_{i}",
-                    label_visibility="collapsed" if st.session_state.feedback_given.get(i) else "visible"
-                )
-                if st.button("Submit note", key=f"submit_{i}") and note:
-                    existing = st.session_state.feedback_given.get(i)
-                    if existing:
-                        save_flag_feedback(st.session_state.get("current_run_id"), flag.field_name, flag.severity, existing, editor_note=note)
-                    else:
-                        save_flag_feedback(st.session_state.get("current_run_id"), flag.field_name, flag.severity, "custom", editor_note=note)
-                    st.toast("Note saved")
-
-                if st.session_state.feedback_given.get(i):
-                    _labels = {"correct": "✅ Marked as correct",
-                               "false_positive": "❌ Marked as false positive",
-                               "already_known": "👁 Marked as already known"}
-                    st.caption(_labels.get(st.session_state.feedback_given[i],
-                                          f"Marked as {st.session_state.feedback_given[i]}"))
-
-        for i, flag in enumerate(report.flags[:5]):
-            render_flag_card(flag, i)
+        for flag in report.flags[:5]:
+            render_flag_card(flag)
 
         if len(report.flags) > 5:
             with st.expander(f"Show {len(report.flags) - 5} more flags"):
-                for i, flag in enumerate(report.flags[5:], start=5):
-                    render_flag_card(flag, i)
+                for flag in report.flags[5:]:
+                    render_flag_card(flag)
     else:
         st.success("No flags detected. This listing looks clean.")
-
-    # --- Observability summary ---
-    st.divider()
-    st.subheader("System Stats")
-    with st.expander("View observability summary"):
-        summary = get_summary_dict()
-        n = summary["total_runs"]
-
-        if n == 0:
-            st.info("No runs logged yet.")
-        else:
-            # Column headers
-            col_l, col_r = st.columns([1, 1])
-            with col_l:
-                st.markdown("**This listing**")
-            with col_r:
-                st.markdown("**All-time avg**")
-
-            # Row 1: Cost
-            col_l, col_r = st.columns([1, 1])
-            with col_l:
-                c = summary["latest_cost"]
-                st.metric("Cost", f"${c:.4f}" if c is not None else "—")
-            with col_r:
-                st.metric("Cost", f"${summary['avg_cost']:.4f}")
-
-            # Row 2: Runtime
-            col_l, col_r = st.columns([1, 1])
-            with col_l:
-                s = summary["latest_total_s"]
-                st.metric("Runtime", f"{s:.1f}s" if s is not None else "—")
-            with col_r:
-                st.metric("Runtime", f"{summary['avg_total_s']:.1f}s")
-
-            # Row 3: Overall score
-            col_l, col_r = st.columns([1, 1])
-            with col_l:
-                sc = summary["latest_overall_score"]
-                st.metric("Overall Score", f"{sc:.2f}" if sc is not None else "—")
-            with col_r:
-                st.metric("Overall Score", f"{summary['avg_overall_score']:.2f}")
-
-            # Row 4: Recommended action
-            col_l, col_r = st.columns([1, 1])
-            with col_l:
-                st.metric("Recommended Action", summary["latest_recommended_action"] or "—")
-            with col_r:
-                ab = summary["action_breakdown"]
-                most_common = max(ab, key=ab.get) if ab else "—"
-                st.metric("Most Common Action", most_common)
-
-            # Row 5: Flags found
-            col_l, col_r = st.columns([1, 1])
-            with col_l:
-                fc = summary["latest_flag_count"]
-                st.metric("Flags Found", fc if fc is not None else "—")
-            with col_r:
-                st.metric("Flags Found", f"{summary['avg_flags']:.1f} avg")
-
-            # Row 6: Errors
-            col_l, col_r = st.columns([1, 1])
-            with col_l:
-                ec = summary["latest_error_count"]
-                st.metric("🔴 Errors", ec if ec is not None else "—")
-            with col_r:
-                st.metric("🔴 Errors", summary["total_errors"])
-
-            # Row 7: Warnings
-            col_l, col_r = st.columns([1, 1])
-            with col_l:
-                wc = summary["latest_warning_count"]
-                st.metric("🟡 Warnings", wc if wc is not None else "—")
-            with col_r:
-                st.metric("🟡 Warnings", summary["total_warnings"])
-
-            # Row 8: Info flags
-            col_l, col_r = st.columns([1, 1])
-            with col_l:
-                ic = summary["latest_info_count"]
-                st.metric("🔵 Info flags", ic if ic is not None else "—")
-            with col_r:
-                st.metric("🔵 Info flags", summary["total_infos"])
-
-            # Agent timing table — this listing vs all-time avg, sorted by all-time avg desc
-            latest_times = summary["latest_agent_times"] or {}
-            st.dataframe(
-                pd.DataFrame([
-                    {
-                        "Agent": a,
-                        "This listing": f"{latest_times.get(a, 0):.1f}s",
-                        "All-time avg": f"{v['seconds']:.1f}s",
-                    }
-                    for a, v in summary["agent_timings"]
-                ]),
-                hide_index=True, use_container_width=True
-            )

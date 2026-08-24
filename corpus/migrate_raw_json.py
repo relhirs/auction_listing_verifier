@@ -1,10 +1,3 @@
-"""
-One-off migration: load the old corpus_raw/*.json files (auction_id +
-comments list) into the raw_comments table in corpus/corpus.db.
-
-Run: python -m corpus.migrate_raw_json
-"""
-
 import glob
 import json
 import os

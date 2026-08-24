@@ -35,6 +35,29 @@ def init_db():
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS auction_details (
+            auction_id TEXT PRIMARY KEY,
+            detail_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS verified_community_errors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            auction_id TEXT,
+            issue_category TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            resolution_status TEXT NOT NULL,
+            source_quote TEXT,
+            mined_flag_category TEXT,
+            mined_confidence REAL,
+            UNIQUE (auction_id, issue_category)
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -99,6 +122,44 @@ def get_comments_for_auction(auction_id: str) -> list:
     return [json.loads(r[0]) for r in rows]
 
 
+def has_auction_detail(auction_id: str) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.execute(
+        "SELECT 1 FROM auction_details WHERE auction_id = ? LIMIT 1", (auction_id,)
+    )
+    found = cur.fetchone() is not None
+    conn.close()
+    return found
+
+
+def save_auction_detail(auction_id: str, detail: dict):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "INSERT OR REPLACE INTO auction_details (auction_id, detail_json) VALUES (?, ?)",
+        (auction_id, json.dumps(detail)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_auction_detail(auction_id: str) -> dict | None:
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute(
+        "SELECT detail_json FROM auction_details WHERE auction_id = ?", (auction_id,)
+    ).fetchone()
+    conn.close()
+    return json.loads(row[0]) if row else None
+
+
+def get_all_detail_auction_ids() -> list:
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        "SELECT auction_id FROM auction_details GROUP BY auction_id ORDER BY MIN(rowid)"
+    ).fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
 def save_mined_discrepancies(records: list):
     conn = sqlite3.connect(DB_PATH)
     for r in records:
@@ -110,3 +171,41 @@ def save_mined_discrepancies(records: list):
         )
     conn.commit()
     conn.close()
+
+
+def save_verified_community_errors(records: list):
+    """records: list of dicts with keys auction_id, issue_category, summary,
+    resolution_status, source_quote, mined_flag_category, mined_confidence.
+    Manually curated ground truth -- human-confirmed real discrepancies found
+    in auction comment threads, a subset of what comment_mining_agent.py
+    flagged as candidates. INSERT OR REPLACE on (auction_id, issue_category)
+    so re-running this seed after editing the source list is idempotent."""
+    conn = sqlite3.connect(DB_PATH)
+    for r in records:
+        conn.execute(
+            "INSERT OR REPLACE INTO verified_community_errors "
+            "(auction_id, issue_category, summary, resolution_status, "
+            "source_quote, mined_flag_category, mined_confidence) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                r["auction_id"],
+                r["issue_category"],
+                r["summary"],
+                r["resolution_status"],
+                r.get("source_quote"),
+                r.get("mined_flag_category"),
+                r.get("mined_confidence"),
+            ),
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_verified_community_errors() -> list:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT * FROM verified_community_errors ORDER BY auction_id IS NULL, auction_id"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

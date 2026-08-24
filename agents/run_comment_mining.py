@@ -1,13 +1,3 @@
-"""
-run_comment_mining.py
-
-Reads every auction's comments out of corpus/corpus.db (raw_comments),
-runs the comment-mining agent on each, and saves confirmed discrepancies
-into the mined_discrepancies table.
-
-Run: python -m agents.run_comment_mining
-"""
-
 from collections import Counter
 
 from dotenv import load_dotenv

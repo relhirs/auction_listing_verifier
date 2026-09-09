@@ -21,7 +21,7 @@ export default function Header() {
         />
         <StatTile
           label="Decision accuracy"
-          value={`${Math.round(HEADLINE.overallAccuracy * 100)}%`}
+          value={`${Math.floor(HEADLINE.overallAccuracy * 100)}%`}
           sublabel="final verdict vs. ground truth"
         />
         <StatTile

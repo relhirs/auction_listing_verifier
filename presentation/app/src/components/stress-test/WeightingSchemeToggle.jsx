@@ -123,7 +123,7 @@ export default function WeightingSchemeToggle() {
           and the real world mix both come back higher.
         </p>
         <p>
-          That is the honest way to read the 87.5% headline. It is not being flattered by an easy
+          That is the honest way to read the 87% headline. It is not being flattered by an easy
           error mix. If anything, real world performance is probably a bit better than that.
         </p>
       </div>

@@ -58,7 +58,7 @@ export default function BootstrapCIChart() {
       </div>
       <TakeawayBadge
         pattern="The real range is about 84.51% to 90.34%. Almost six points wide, not a single fixed number."
-        soWhat="87.53% is the headline number, but the honest answer isn't one number. It's a range."
+        soWhat="87% is the headline number, but the honest answer isn't one number. It's a range."
       />
     </Card>
   )

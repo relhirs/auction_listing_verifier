@@ -1,3 +1,17 @@
+"""One-off script: runs the real pipeline once for each hardcoded sample
+listing in sample_listings.py and saves the real output to
+sample_reports_cache.json.
+
+Run this whenever sample_listings.py's EXAMPLE_LISTINGS changes:
+
+    python generate_sample_cache.py
+
+app.py then replays these cached, genuinely-produced results instead of
+re-calling the API every time a visitor picks a sample from the dropdown.
+This costs a small amount of real API spend once, here, not repeatedly on
+every visitor's click.
+"""
+
 import json
 from dotenv import load_dotenv
 
@@ -9,9 +23,9 @@ from agents.photo_agent import analyze_photos
 from agents.editorial_agent import check_editorial
 from core.verifier import verify_listing
 from agents.synthesis_agent import synthesize_report
-from corpus.sample_listings import EXAMPLE_LISTINGS
+from sample_listings import EXAMPLE_LISTINGS
 
-OUT_PATH = "eval/sample_reports_cache.json"
+OUT_PATH = "sample_reports_cache.json"
 
 
 def build_cache_entry(listing_text: str, image_urls: list[str]) -> dict:

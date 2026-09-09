@@ -40,7 +40,7 @@ export default function App() {
       <SectionWrapper
         id="what-changed"
         eyebrow="01 What changed"
-        title="From 77.5% to 87.5%"
+        title="From 77.5% to 87%"
         subtitle="Two root cause fixes, both traced back to the same kind of bug."
       >
         <div className="flex flex-col gap-6">
@@ -77,7 +77,7 @@ export default function App() {
       <SectionWrapper
         id="stress-test"
         eyebrow="04 Stress testing the result"
-        title="Does 87.5% hold up under different assumptions?"
+        title="Does 87% hold up under different assumptions?"
         subtitle="Reweight the error mix, move the confidence floor, sample fewer photos, see what breaks."
       >
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">

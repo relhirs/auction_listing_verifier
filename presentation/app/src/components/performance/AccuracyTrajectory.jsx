@@ -64,7 +64,7 @@ export default function AccuracyTrajectory() {
         </LineChart>
       </ResponsiveContainer>
       <p className="text-sm text-zinc-600 mt-3">
-        Accuracy jumped from 77.5% to 87.5% after fixing two bugs across the 500 real listings.
+        Accuracy jumped from 77.5% to 87% after fixing two bugs across the 500 real listings.
         For comparison, simply flagging every listing gets 40.64%. Always guessing the most
         common outcome (needs review) hits 51.31% because that is the right call for about half
         the data. Both big improvements came down to one core issue. The system kept quietly

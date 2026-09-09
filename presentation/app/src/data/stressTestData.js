@@ -294,7 +294,7 @@ export const COMMUNITY_ERROR_CASES = [
 ]
 
 export const REWEIGHTING_NOTE =
-  'The mix this system was actually tested on is the lowest scoring of the three. 87.5% is not being flattered by an easy error mix. If anything, real world performance is probably a little better than that number.'
+  'The mix this system was actually tested on is the lowest scoring of the three. 87% is not being flattered by an easy error mix. If anything, real world performance is probably a little better than that number.'
 
 // analysis/output/photo_sampling_tradeoff.json
 export const K_VALUES = [2, 3, 4, 5, 6, 7, 8, 'full']

@@ -58,7 +58,7 @@ export const FUTURE_WORK = [
     items: [
       {
         title: 'Give each row its own random seed',
-        text: 'The whole eval set once pulled from a single shared random stream. Changing one error injector shifted 259 of 497 rows that had nothing to do with that injector. I found that bug and fixed it for that one case by giving the ground truth regen its own seed. I never went back and reseeded every row in the whole pipeline by its own auction ID. That would mean touching a pipeline that already produces validated results, to guard against a bug class I already caught and patched. Worth doing before adding more randomized steps. Not urgent enough to justify the risk right now.',
+        text: 'The whole eval set once pulled from a single shared random stream. Changing one error injector shifted 259 of 500 rows that had nothing to do with that injector. I found that bug and fixed it for that one case by giving the ground truth regen its own seed. I never went back and reseeded every row in the whole pipeline by its own auction ID. That would mean touching a pipeline that already produces validated results, to guard against a bug class I already caught and patched. Worth doing before adding more randomized steps. Not urgent enough to justify the risk right now.',
       },
     ],
   },

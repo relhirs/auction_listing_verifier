@@ -12,7 +12,7 @@ I built this, tested it against 500 real closed auctions from Cars and Bids, and
 
 Cars and Bids is a used car auction site. Before a listing goes live, someone has to check that the seller's claims are actually true. Right now a human editor does that by eye. That works, but it does not scale, and people miss things.
 
-This project asks a simple question. Can a system catch the same mistakes a sharp human editor would catch, automatically, and can you actually prove it works instead of just claiming it does.
+This project asks a simple question. Can a system catch the same mistakes a sharp human editor would catch automatically, and can you actually prove it works instead of just claiming it does.
 
 ## How it works
 
@@ -24,7 +24,7 @@ A listing goes through five stages.
 4. **Verification.** Every field from every source above gets cross checked against every other source. Does the claimed year match the VIN? Does the claimed color match what the photos show? Is the mileage consistent with the car's own documented history? This step produces a list of flags.
 5. **Synthesis.** The flags get turned into a final report, a score from 0 to 1, and a recommended action: approve, needs review, or reject.
 
-A human pastes a listing into the app and gets a report back in under a minute.
+The full pipeline can run live, end to end. The demo below skips that and replays cached results instead, so trying it never costs anyone real API money.
 
 ### Why the verification step is not an LLM
 
@@ -42,24 +42,18 @@ That scraper reverse engineers the site's internal signing scheme to pull real d
 
 ## What the numbers showed
 
-- **Overall accuracy: 87.50%** (456 of 500 caught), up from 77.50% in the first real run
-- **Versus a naive baseline: plus 36 points** (a baseline that just guesses "no error" scores 51.30%)
-- **95% confidence interval: [84.51%, 90.34%]**, from 5,000 bootstrap resamples. The headline number is 87.50%, but the honest range is almost six points wide
+- **Overall accuracy: 87%** (456 of 500 caught), up from 77% in the first real run
+- **Versus a naive baseline: plus 36 points** (a baseline that just guesses "no error" scores 51%)
+- **95% confidence interval: [84.51%, 90.34%]**, from 5,000 bootstrap resamples. The headline number is 87%, but the honest range is almost six points wide
 - **Cost per real catch: about 26 cents**
 
 Most individual checks land at or above 0.94 AUC, meaning the system reliably ranks a real error above a clean listing. One check, engine cylinder mismatches, sits near a coin flip at 0.50 AUC, but that is because there is only one real example of that error in the whole 500 listing set, not because the check itself is bad.
 
-## Real bugs, found and fixed
+## What broke along the way
 
-**The model was correcting my own fake errors.** Early on, the make check was only catching 12.5% of planted errors. I assumed the check itself was broken. It wasn't. The extraction model would notice a fake detail did not match the rest of the listing's own prose and would quietly fix it back to the truth before the check ever got a chance to see it. The bug was in my test setup, not the system. Rewriting the surrounding sentences so the fake detail actually held together fixed it, and recall went to 100%.
+A few of the more interesting ones: the model quietly correcting my own fake errors before the checker could see them, one recall number that turned out to be hiding two separate bugs stacked on top of each other, and a confidence fix that looked reasonable but was actually silently dropping 114 real catches, caught before it ever shipped.
 
-**One recall number hid two separate bugs.** The drivetrain check was stuck at 65% recall for a while. It turned out to be two unrelated problems layered on top of each other. First, a stale ground truth file was testing conditions the code had already excluded on purpose. Second, once that was fixed, a real self correction bug remained, the same kind as the make error issue above, just in a different field. Fixing both took recall to 100%.
-
-**A confident sounding fix that made things worse, caught before shipping.** At one point I tried scaling a check's confidence score using how clear the photo evidence looked. It sounded reasonable. It actually dropped 114 real catches below the confidence floor, silently, before anyone saw a flag. A validation pass caught this before it shipped, and the floor logic was fixed to never let that happen again.
-
-**A statistical test that ran fine but was still wrong.** After fixing the drivetrain bug, I first checked whether the improvement was real using Fisher's exact test, which gave a clean p value of 0.0083. That test was the wrong one. Fisher's assumes two independent groups, but this was the same 20 auctions measured twice, before and after. Switching to the correct paired test, McNemar's exact test, gave p = 0.0156. Same conclusion, but now the math actually matches what was measured.
-
-**Confidence that did not know when to be humble.** One check kept reporting high confidence even on its false alarms, all of them the same specific mix up between two drivetrain types. Every other type of mix up it flagged was correct 100% of the time. So confidence for that one specific case got floored down to be more honest, without touching anything that was already working.
+Full writeup of all of them, what broke and what fixed it, is in [explore further](explore_further.md).
 
 ## What this does not do
 
@@ -68,6 +62,8 @@ Most individual checks land at or above 0.94 AUC, meaning the system reliably ra
 - Every numeric tolerance in this system is a stated judgment call, not something proven by data. This project measures whether the system behaves consistently with its own rules. It does not independently prove those rules are the objectively correct ones.
 - One check, engine cylinder mismatches, has exactly one real example in the entire dataset, so its accuracy number is not meaningful yet either way.
 - Listings from before 1981 have VINs too short for the government database to decode a model year at all, so year checks cannot run on those.
+
+The full story, how the test was built and the complete set of numbers behind it is in [explore further](explore_further.md).
 
 ## Tech stack
 

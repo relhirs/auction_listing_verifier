@@ -1,4 +1,4 @@
-For more details on this project, click [here] (explore_further.md).
+For more details on this project, click [here](explore_further.md).
 
 # Listing Checker
 

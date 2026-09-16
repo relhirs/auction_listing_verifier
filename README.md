@@ -1,3 +1,5 @@
+For more details on this project, click [here] (explore_further.md).
+
 # Listing Checker
 
 Catching 9 in 10 auction mistakes before anyone bids.
@@ -40,30 +42,7 @@ To test the system against real-world patterns, I scraped 500 closed auctions an
 
 That scraper reverse engineers the site's internal signing scheme to pull real data legitimately and caches everything locally, so nothing gets scraped twice. That part alone was its own small engineering project.
 
-## What the numbers showed
-
-- **Overall accuracy: 87%** (456 of 500 caught), up from 77% in the first real run
-- **Versus a naive baseline: plus 36 points** (a baseline that just guesses "no error" scores 51%)
-- **95% confidence interval: [84.51%, 90.34%]**, from 5,000 bootstrap resamples. The headline number is 87%, but the honest range is almost six points wide
-- **Cost per real catch: about 26 cents**
-
-Most individual checks land at or above 0.94 AUC, meaning the system reliably ranks a real error above a clean listing. One check, engine cylinder mismatches, sits near a coin flip at 0.50 AUC, but that is because there is only one real example of that error in the whole 500 listing set, not because the check itself is bad.
-
-## What broke along the way
-
-A few of the more interesting ones: the model quietly correcting my own fake errors before the checker could see them, one recall number that turned out to be hiding two separate bugs stacked on top of each other, and a confidence fix that looked reasonable but was actually silently dropping 114 real catches, caught before it ever shipped.
-
-Full writeup of all of them, what broke and what fixed it, is in [explore further](explore_further.md).
-
-## What this does not do
-
-- Mileage checks only work if the listing's own text contains a dated service record, which covers about 72% of real listings. There is no way to check mileage against the VIN directly, mileage is not part of a VIN.
-- The real site only sorts photos into five broad categories, not the full list of specific angles a checklist might ideally want.
-- Every numeric tolerance in this system is a stated judgment call, not something proven by data. This project measures whether the system behaves consistently with its own rules. It does not independently prove those rules are the objectively correct ones.
-- One check, engine cylinder mismatches, has exactly one real example in the entire dataset, so its accuracy number is not meaningful yet either way.
-- Listings from before 1981 have VINs too short for the government database to decode a model year at all, so year checks cannot run on those.
-
-The full story, how the test was built and the complete set of numbers behind it is in [explore further](explore_further.md).
+A full writeup can be found [here](explore_further.md).
 
 ## Tech stack
 
@@ -93,4 +72,6 @@ python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 streamlit run app.py
+
+Note: the system works in real time. For this demo, results are cached to avoid API costs. 
 ```

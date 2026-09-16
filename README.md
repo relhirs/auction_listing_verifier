@@ -1,4 +1,4 @@
-For more details on this project, click [here](explore_further.md).
+For more details on this project, click [here](docs/explore_further.md).
 
 # Listing Checker
 
@@ -42,7 +42,7 @@ To test the system against real-world patterns, I scraped 500 closed auctions an
 
 That scraper reverse engineers the site's internal signing scheme to pull real data legitimately and caches everything locally, so nothing gets scraped twice. That part alone was its own small engineering project.
 
-A full writeup can be found [here](explore_further.md).
+A full writeup can be found [here](docs/explore_further.md).
 
 ## Tech stack
 

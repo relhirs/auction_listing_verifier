@@ -10,12 +10,6 @@ I built this, tested it against 500 real closed auctions from Cars and Bids, and
 
 [**Live Dashboard**](https://listing-checker-ai.vercel.app/): the full interactive breakdown of every result down below 
 
-## The problem
-
-Cars and Bids is a used car auction site. Before a listing goes live, someone has to check that the seller's claims are actually true. Right now a human editor does that by eye. That works, but it does not scale, and people miss things.
-
-This project asks a simple question. Can a system catch the same mistakes a sharp human editor would catch automatically, and can you actually prove it works instead of just claiming it does.
-
 ## How it works
 
 A listing goes through five stages.

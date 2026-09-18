@@ -49,6 +49,7 @@ export default function LogisticRegressionDrawer() {
           <div className="font-mono text-2xl text-zinc-900">
             {prosePatch.preFix.or.toFixed(2)}x
           </div>
+          <div className="text-xs text-zinc-500 mb-1">higher odds of catching an error</div>
           <div className="text-xs text-zinc-500">
             p = {prosePatch.preFix.p} &middot; significant
           </div>
@@ -58,6 +59,7 @@ export default function LogisticRegressionDrawer() {
             After the drivetrain fix
           </div>
           <div className="font-mono text-2xl text-zinc-900">{prosePatch.or.toFixed(2)}x</div>
+          <div className="text-xs text-zinc-500 mb-1">higher odds of catching an error</div>
           <div className="text-xs text-zinc-500">
             p = {prosePatch.p.toFixed(2)} &middot; not significant
           </div>
